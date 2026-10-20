@@ -71,6 +71,23 @@ def normalize(image):
     return (image - mean) / (std + 1e-6)
 
 
+def pad_batch(batch):
+    """Pad a batch to a common size divisible by 16."""
+    images, masks = zip(*batch)
+    height = max(image.shape[1] for image in images)
+    width = max(image.shape[2] for image in images)
+    height = ((height + 15) // 16) * 16
+    width = ((width + 15) // 16) * 16
+
+    padded_images = torch.zeros(len(images), 1, height, width)
+    padded_masks = torch.zeros(len(masks), height, width, dtype=torch.long)
+    for i, (image, mask) in enumerate(batch):
+        h, w = image.shape[1], image.shape[2]
+        padded_images[i, :, :h, :w] = image
+        padded_masks[i, :h, :w] = mask
+    return padded_images, padded_masks
+
+
 class HipMRISlices(Dataset):
     def __init__(self, refs, augment=False, preload=True):
         self.refs = refs
@@ -78,15 +95,12 @@ class HipMRISlices(Dataset):
         self.images = None
         self.labels = None
         if preload and refs:
-            height, width = nib.load(refs[0].image).shape[:2]
-            self.images = np.empty((len(refs), height, width), dtype=np.float16)
-            self.labels = np.empty((len(refs), height, width), dtype=np.uint8)
-            for i, ref in enumerate(refs):
+            self.images = []
+            self.labels = []
+            for ref in refs:
                 image, mask = self._read(ref)
-                if image.shape != (height, width):
-                    raise ValueError(f"inconsistent shape in {ref.image}: {image.shape}")
-                self.images[i] = image.astype(np.float16)
-                self.labels[i] = mask
+                self.images.append(image.astype(np.float16))
+                self.labels.append(mask)
 
     @staticmethod
     def _read(ref):

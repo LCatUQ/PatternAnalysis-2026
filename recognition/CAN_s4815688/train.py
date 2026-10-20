@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 
-from dataset import CLASS_NAMES, PROSTATE, make_datasets
+from dataset import CLASS_NAMES, PROSTATE, make_datasets, pad_batch
 from metrics import dice_per_class, iou_per_class, update_confusion
 from modules import build_model
 
@@ -43,7 +43,9 @@ class CombinedLoss(nn.Module):
 
 
 def class_weights(dataset):
-    counts = np.bincount(dataset.labels.reshape(-1), minlength=len(CLASS_NAMES)).astype(np.float64)
+    counts = np.zeros(len(CLASS_NAMES), dtype=np.int64)
+    for mask in dataset.labels:
+        counts += np.bincount(mask.reshape(-1), minlength=len(CLASS_NAMES))
     freq = counts / counts.sum()
     weights = 1.0 / np.sqrt(freq + 1e-8)
     weights = weights / weights.mean()
@@ -118,10 +120,12 @@ def main():
     train_loader = DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=device.type == "cuda", drop_last=True,
+        collate_fn=pad_batch,
     )
     val_loader = DataLoader(
         val_set, batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=device.type == "cuda",
+        collate_fn=pad_batch,
     )
 
     model = build_model(args.model, n_classes=len(CLASS_NAMES), base=args.base).to(device)

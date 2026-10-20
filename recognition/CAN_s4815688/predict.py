@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import CLASS_NAMES, PROSTATE, discover, HipMRISlices
+from dataset import CLASS_NAMES, PROSTATE, discover, HipMRISlices, pad_batch
 from metrics import dice_binary, dice_per_class, iou_per_class, update_confusion
 from modules import build_model
 
@@ -140,6 +140,7 @@ def main():
     loader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=device.type == "cuda",
+        collate_fn=pad_batch,
     )
 
     n_classes = len(CLASS_NAMES)
@@ -171,17 +172,19 @@ def main():
         predictions = probabilities.argmax(dim=1).cpu().numpy().astype(np.uint8)
         confidence = probabilities.max(dim=1).values.cpu().numpy()
         targets = masks.numpy().astype(np.uint8)
-        update_confusion(confusion, predictions, targets, n_classes)
 
         for i in range(images.size(0)):
             index = batch_index * args.batch_size + i
             ref = dataset.refs[index]
-            pred = predictions[i]
-            target = targets[i]
+            height, width = dataset.labels[index].shape
+            pred = predictions[i][:height, :width]
+            target = targets[i][:height, :width]
+            confidence_map = confidence[i][:height, :width]
+            update_confusion(confusion, pred, target, n_classes)
             dice = dice_binary(pred, target, PROSTATE)
 
             region = (pred == PROSTATE) | (target == PROSTATE)
-            conf = float(confidence[i][region].mean()) if region.any() else float("nan")
+            conf = float(confidence_map[region].mean()) if region.any() else float("nan")
 
             pred_area = int((pred == PROSTATE).sum())
             leak = 0.0
