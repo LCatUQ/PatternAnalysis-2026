@@ -32,7 +32,7 @@ def load_slices(path):
 
 
 def finite(rows):
-    return [row for row in rows if np.isfinite(row["dice"])]
+    return [row for row in rows if row["gt_area"] > 0 and np.isfinite(row["dice"])]
 
 
 def key(row):

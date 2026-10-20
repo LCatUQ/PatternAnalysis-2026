@@ -153,6 +153,7 @@ def main():
         max_slice[key] = max(max_slice[key], ref.index)
     inference_seconds = 0.0
     seen = 0
+    offset = 0
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
@@ -174,7 +175,7 @@ def main():
         targets = masks.numpy().astype(np.uint8)
 
         for i in range(images.size(0)):
-            index = batch_index * args.batch_size + i
+            index = offset + i
             ref = dataset.refs[index]
             height, width = dataset.labels[index].shape
             pred = predictions[i][:height, :width]
@@ -186,12 +187,14 @@ def main():
             region = (pred == PROSTATE) | (target == PROSTATE)
             conf = float(confidence_map[region].mean()) if region.any() else float("nan")
 
+            target_area = int((target == PROSTATE).sum())
             pred_area = int((pred == PROSTATE).sum())
             leak = 0.0
             if pred_area:
                 leak = float(((pred == PROSTATE) & ((target == 3) | (target == 4))).sum() / pred_area)
 
-            per_case[(ref.case, ref.week)].append(dice)
+            if target_area:
+                per_case[(ref.case, ref.week)].append(dice)
             rows.append({
                 "case": ref.case,
                 "week": ref.week,
@@ -200,23 +203,30 @@ def main():
                 "dice": dice,
                 "confidence": conf,
                 "leak": leak,
-                "gt_area": int((target == PROSTATE).sum()),
+                "gt_area": target_area,
                 "pred_area": pred_area,
                 "dataset_index": index,
                 "pred_mask": pred,
             })
-            seen += images.size(0)
+
+        seen += images.size(0)
+        offset += images.size(0)
 
     dice_classes = dice_per_class(confusion)
     iou_classes = iou_per_class(confusion)
-    valid_dice = np.array([row["dice"] for row in rows if np.isfinite(row["dice"])])
+    gt_rows = [row for row in rows if row["gt_area"] > 0 and np.isfinite(row["dice"])]
+    valid_dice = np.array([row["dice"] for row in gt_rows])
+    empty_predictions = sum(
+        1 for row in rows if row["gt_area"] == 0 and row["pred_area"] > 0
+    )
 
     print(f"\n{tag} on {args.split}: {seen} slices")
     print(f"{'class':10s} {'dice':>7s} {'iou':>7s}")
     for name, dice, iou in zip(CLASS_NAMES, dice_classes, iou_classes):
         print(f"{name:10s} {dice:7.3f} {iou:7.3f}")
     print(f"prostate dice mean {valid_dice.mean():.3f} median {np.median(valid_dice):.3f} "
-          f"n={valid_dice.size}")
+          f"n={valid_dice.size} slices with prostate, "
+          f"{empty_predictions} false positives on empty slices")
 
     print("\nper case:")
     for (case, week), values in sorted(per_case.items()):
@@ -263,6 +273,8 @@ def main():
         "iou": {name: float(value) for name, value in zip(CLASS_NAMES, iou_classes)},
         "prostate_dice_mean": float(valid_dice.mean()),
         "prostate_dice_median": float(np.median(valid_dice)),
+        "prostate_slices": int(valid_dice.size),
+        "empty_false_positives": empty_predictions,
         "leak_mean": float(np.nanmean([row["leak"] for row in rows])),
         "params": sum(p.numel() for p in model.parameters()),
         "peak_vram_mb": peak_memory,
