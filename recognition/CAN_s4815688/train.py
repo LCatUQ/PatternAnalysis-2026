@@ -115,6 +115,14 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("device:", device)
 
+    if args.resume:
+        resume_path = os.path.join(args.out, f"{args.model}_last.pt")
+        if os.path.exists(resume_path):
+            previous = torch.load(resume_path, map_location="cpu", weights_only=False)
+            if previous.get("epoch", 0) >= args.epochs:
+                print(f"checkpoint already at epoch {previous['epoch']}, nothing to do")
+                return
+
     train_set, val_set, _ = make_datasets(args.data_root, limit=args.limit)
     print(f"train {len(train_set)} slices, val {len(val_set)} slices")
 
