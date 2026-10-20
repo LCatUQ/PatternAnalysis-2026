@@ -104,6 +104,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -140,9 +141,28 @@ def main():
 
     history = []
     best_dice, best_epoch, stale = -1.0, 0, 0
+    start_epoch = 1
+
+    if args.resume:
+        resume_path = os.path.join(args.out, f"{args.model}_last.pt")
+        if os.path.exists(resume_path):
+            checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
+            model.load_state_dict(checkpoint["state_dict"])
+            if "optimizer" in checkpoint:
+                optimizer.load_state_dict(checkpoint["optimizer"])
+            if "scheduler" in checkpoint:
+                scheduler.load_state_dict(checkpoint["scheduler"])
+            history = checkpoint.get("history", [])
+            best_dice = checkpoint.get("best_dice", -1.0)
+            best_epoch = checkpoint.get("best_epoch", 0)
+            start_epoch = checkpoint["epoch"] + 1
+            print(f"resuming from {resume_path} at epoch {start_epoch}")
+        else:
+            print("no checkpoint to resume, starting fresh")
+
     start = time.time()
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         train_loss = train_epoch(model, train_loader, criterion, optimizer, scaler, device)
         val_loss, val_dice, val_iou, _ = evaluate(model, val_loader, criterion, device)
 
@@ -181,9 +201,26 @@ def main():
             )
         else:
             stale += 1
-            if stale >= args.patience:
-                print("early stop")
-                break
+
+        torch.save(
+            {
+                "model": args.model,
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "args": vars(args),
+                "classes": CLASS_NAMES,
+                "epoch": epoch,
+                "best_dice": best_dice,
+                "best_epoch": best_epoch,
+                "history": history,
+            },
+            os.path.join(args.out, f"{args.model}_last.pt"),
+        )
+
+        if stale >= args.patience:
+            print("early stop")
+            break
 
     with open(os.path.join(args.out, f"{args.model}_history.csv"), "w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(history[0].keys()))
