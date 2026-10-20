@@ -50,6 +50,46 @@ def diff_overlay(axis, image, pred, target):
     axis.axis("off")
 
 
+def choose_failures(rows, count=5):
+    candidates = [row for row in rows if row["gt_area"] > 0 and np.isfinite(row["dice"])]
+    chosen = []
+
+    def add(row, reason):
+        if row is None:
+            return
+        key = (row["case"], row["week"], row["slice"])
+        if all(key != (item["case"], item["week"], item["slice"]) for item in chosen):
+            row["reason"] = reason
+            chosen.append(row)
+
+    if candidates:
+        add(min(candidates, key=lambda row: row["dice"]), "complete miss")
+        add(max(candidates, key=lambda row: row["leak"]), "leakage")
+        add(
+            max(candidates, key=lambda row: row["pred_area"] / max(row["gt_area"], 1)),
+            "over-contour",
+        )
+        positive = [row for row in candidates if row["pred_area"] > 0]
+        if positive:
+            add(
+                min(positive, key=lambda row: row["pred_area"] / row["gt_area"]),
+                "under-contour",
+            )
+
+        used = {item["case"] for item in chosen}
+        for row in sorted(candidates, key=lambda row: row["dice"]):
+            if row["case"] not in used:
+                add(row, "worst in another patient")
+                break
+
+        for row in sorted(candidates, key=lambda row: row["dice"]):
+            if len(chosen) >= count:
+                break
+            add(row, "low dice")
+
+    return chosen[:count]
+
+
 def save_failure_panel(dataset, rows, path):
     figure, axes = plt.subplots(len(rows), 4, figsize=(10, 2.7 * len(rows)))
     if len(rows) == 1:
@@ -63,7 +103,10 @@ def save_failure_panel(dataset, rows, path):
         overlay(axis_row[1], image, target)
         overlay(axis_row[2], image, pred)
         diff_overlay(axis_row[3], image, pred, target)
-        axis_row[0].set_title(f"{row['case']}w{row['week']} s{row['slice']}", fontsize=8)
+        axis_row[0].set_title(
+            f"{row['case']}w{row['week']} s{row['slice']} - {row.get('reason', '')}",
+            fontsize=7,
+        )
         axis_row[1].set_title("ground truth", fontsize=8)
         axis_row[2].set_title(f"prediction, dice {row['dice']:.3f}", fontsize=8)
         axis_row[3].set_title("TP / FP / FN", fontsize=8)
@@ -241,18 +284,7 @@ def main():
     print(f"\nparameters {sum(p.numel() for p in model.parameters()):,}  "
           f"peak vram {peak_memory:.0f} MB  {milliseconds:.1f} ms/slice")
 
-    failures = sorted(
-        (row for row in rows if np.isfinite(row["dice"])),
-        key=lambda row: row["dice"],
-    )
-    chosen, cases = [], set()
-    for row in failures:
-        key = (row["case"], row["week"])
-        if key not in cases:
-            chosen.append(row)
-            cases.add(key)
-        if len(chosen) == 5:
-            break
+    chosen = choose_failures(rows, 5)
     if chosen:
         save_failure_panel(dataset, chosen, os.path.join(args.out, f"{tag}_failures.png"))
 
