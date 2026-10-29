@@ -282,7 +282,8 @@ exists, the simpler model is the safer engineering choice.
 ## 8. Reproduction
 
 Requirements are in `requirements.txt`: Python 3.11, PyTorch 2.x, NumPy, Matplotlib and
-NiBabel. The runs used the course's `torch` conda environment on Rangpur.
+NiBabel. The exact environment used for the reported runs is recorded in `environment.txt`
+(torch 2.14.0, numpy 2.4.6, matplotlib 3.11.2, nibabel 5.4.2).
 
 ```bash
 # baseline
