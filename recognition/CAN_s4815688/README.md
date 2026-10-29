@@ -88,6 +88,10 @@ and ReLU, with a residual connection. It raises the parameter count to **8,353,4
 this hybrid; it is not a full-resolution context aggregation network, and the README says
 so rather than overclaiming.
 
+This is the Normal-difficulty 2D CAN entry from the course table. The context block is the
+CAN component; the U-Net scaffold is held constant so the comparison isolates context
+rather than capacity.
+
 ### 3.3 Training
 
 - Loss: cross-entropy with class weights plus soft Dice on the five foreground classes.
@@ -153,6 +157,9 @@ The large structures are saturated; the differences are in the small organs. CAN
 slightly better on prostate pixels and slightly worse on bladder and rectum, which is the
 first hint that it moves error rather than removing it.
 
+Test prostate Dice is 0.858 for U-Net and 0.863 for CAN, both above the 0.75 course target.
+The per-slice means are 0.744 and 0.763, and two of the nine case-weeks fall below 0.75.
+
 ### 5.2 Per-slice and paired comparison
 
 | metric | U-Net | CAN |
@@ -215,11 +222,11 @@ it is the leakage and false-positive behaviour.
 
 ## 6. Failure analysis
 
-The five cases below are selected by distinct criteria, not by cherry-picking the same
-error five times: worst Dice, highest leakage, largest over-contour, largest under-contour,
-and a tiny target in a different patient.
+![Worst-Dice slices](figures/failures.png)
 
-![Failure cases](figures/failures.png)
+The panel above shows the five lowest-Dice U-Net slices; all five are complete misses, which
+is the dominant failure mode. The table below adds four modes chosen separately: leakage,
+over-contour, under-contour, and a tiny target in a second patient.
 
 | case | slice | trigger | GT pixels | predicted | Dice | confidence |
 |---|---|---:|---:|---:|---:|---:|
@@ -275,7 +282,7 @@ exists, the simpler model is the safer engineering choice.
 ## 8. Reproduction
 
 Requirements are in `requirements.txt`: Python 3.11, PyTorch 2.x, NumPy, Matplotlib and
-NiBabel. The cluster environment is recorded with `pip freeze` in `environment.txt`.
+NiBabel. The runs used the course's `torch` conda environment on Rangpur.
 
 ```bash
 # baseline
